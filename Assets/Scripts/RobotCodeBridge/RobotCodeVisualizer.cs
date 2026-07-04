@@ -67,7 +67,7 @@ public class RobotCodeVisualizer : MonoBehaviour
 
         if (robotRigidbody && makeRobotKinematicWhileFollowing)
         {
-            robotRigidbody.isKinematic = true;
+            MakeKinematicWithoutCollision(robotRigidbody);
         }
 
         LoadFuelPrefab();
@@ -176,9 +176,7 @@ public class RobotCodeVisualizer : MonoBehaviour
 
         if (robotRigidbody && makeRobotKinematicWhileFollowing)
         {
-            robotRigidbody.isKinematic = true;
-            robotRigidbody.velocity = Vector3.zero;
-            robotRigidbody.angularVelocity = Vector3.zero;
+            MakeKinematicWithoutCollision(robotRigidbody);
         }
 
         if (disableUnityRobotControls)
@@ -359,10 +357,7 @@ public class RobotCodeVisualizer : MonoBehaviour
 
             if (piece.rb)
             {
-                piece.rb.isKinematic = true;
-                piece.rb.detectCollisions = false;
-                piece.rb.velocity = Vector3.zero;
-                piece.rb.angularVelocity = Vector3.zero;
+                MakeKinematicWithoutCollision(piece.rb);
             }
         }
     }
@@ -405,10 +400,23 @@ public class RobotCodeVisualizer : MonoBehaviour
 
         foreach (Rigidbody body in piece.GetComponentsInChildren<Rigidbody>(true))
         {
-            body.isKinematic = true;
-            body.detectCollisions = false;
+            MakeKinematicWithoutCollision(body);
+        }
+    }
+
+    private void MakeKinematicWithoutCollision(Rigidbody body)
+    {
+        if (!body)
+        {
+            return;
+        }
+
+        body.detectCollisions = false;
+        if (!body.isKinematic)
+        {
             body.velocity = Vector3.zero;
             body.angularVelocity = Vector3.zero;
+            body.isKinematic = true;
         }
     }
 
