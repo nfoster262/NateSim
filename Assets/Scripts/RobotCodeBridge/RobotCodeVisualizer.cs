@@ -1,11 +1,14 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using Util;
 
 public class RobotCodeVisualizer : MonoBehaviour
 {
     [Header("Frame Source")]
     [SerializeField] private RobotCodeUdpReceiver receiver;
+    [SerializeField] private LoadMatch loadMatch;
+    [SerializeField] private bool autoFindSpawnedRobot = true;
 
     [Header("Robot Pose")]
     [SerializeField] private Transform robotRoot;
@@ -13,6 +16,12 @@ public class RobotCodeVisualizer : MonoBehaviour
     [SerializeField] private bool followRobotPose = true;
     [SerializeField] private bool makeRobotKinematicWhileFollowing = true;
     [SerializeField] private float poseSmoothing = 18f;
+
+    [Header("Visualizer Mode")]
+    [SerializeField] private bool disableUnityRobotControls = true;
+    [SerializeField] private bool disableUnityMechanismActions = true;
+    [SerializeField] private bool disableUnityFieldGamePieceSystems = true;
+    [SerializeField] private bool removeUnitySpawnedGamePieces = true;
 
     [Header("WPILib Field Mapping")]
     [SerializeField] private float fieldLengthMeters = 16.540988f;
@@ -37,6 +46,8 @@ public class RobotCodeVisualizer : MonoBehaviour
     private readonly List<GamePiece> mirroredFuel = new List<GamePiece>();
     private readonly List<GamePiece> mirroredProjectiles = new List<GamePiece>();
     private GameObject fuelPrefab;
+    private Transform configuredRobotRoot;
+    private bool configuredFieldAsVisualizer;
 
     private void Awake()
     {
@@ -45,15 +56,7 @@ public class RobotCodeVisualizer : MonoBehaviour
             receiver = GetComponent<RobotCodeUdpReceiver>();
         }
 
-        if (!robotRoot)
-        {
-            robotRoot = transform;
-        }
-
-        if (!robotRigidbody && robotRoot)
-        {
-            robotRigidbody = robotRoot.GetComponent<Rigidbody>();
-        }
+        ResolveRobotRoot();
 
         if (robotRigidbody && makeRobotKinematicWhileFollowing)
         {
@@ -63,12 +66,21 @@ public class RobotCodeVisualizer : MonoBehaviour
         LoadFuelPrefab();
     }
 
+    private void Start()
+    {
+        ConfigureRobotAsVisualizer();
+        ConfigureFieldAsVisualizer();
+    }
+
     private void FixedUpdate()
     {
         if (!receiver || !receiver.TryGetLatestFrame(out RobotCodeFrame frame))
         {
             return;
         }
+
+        ConfigureRobotAsVisualizer();
+        ConfigureFieldAsVisualizer();
 
         latestSuccessfulScoreCount = frame.successfulScoreCount;
         latestLaunchEventId = frame.launchEventId;
@@ -88,6 +100,161 @@ public class RobotCodeVisualizer : MonoBehaviour
         if (mirrorProjectilePoses)
         {
             SyncGamePieces(mirroredProjectiles, frame.projectilePoses);
+        }
+    }
+
+    private void ConfigureFieldAsVisualizer()
+    {
+        if (configuredFieldAsVisualizer)
+        {
+            return;
+        }
+
+        bool foundFieldObject = false;
+
+        if (disableUnityFieldGamePieceSystems)
+        {
+            foreach (SpawnGamePiece spawner in FindObjectsByType<SpawnGamePiece>(FindObjectsSortMode.None))
+            {
+                foundFieldObject = true;
+                spawner.enabled = false;
+            }
+        }
+
+        if (removeUnitySpawnedGamePieces)
+        {
+            foreach (GamePiece piece in FindObjectsByType<GamePiece>(FindObjectsSortMode.None))
+            {
+                foundFieldObject = true;
+                if (!piece || piece.pieceType != fuelPieceName || IsMirroredPiece(piece))
+                {
+                    continue;
+                }
+
+                Destroy(piece.gameObject);
+            }
+        }
+
+        if (!loadMatch)
+        {
+            loadMatch = FindFirstObjectByType<LoadMatch>();
+        }
+
+        foundFieldObject |= loadMatch != null && loadMatch.getFieldHolder() != null;
+        configuredFieldAsVisualizer = foundFieldObject;
+    }
+
+    private void ConfigureRobotAsVisualizer()
+    {
+        ResolveRobotRoot();
+
+        if (!robotRoot || configuredRobotRoot == robotRoot)
+        {
+            return;
+        }
+
+        configuredRobotRoot = robotRoot;
+
+        if (!robotRigidbody)
+        {
+            robotRigidbody = robotRoot.GetComponent<Rigidbody>();
+        }
+
+        if (robotRigidbody && makeRobotKinematicWhileFollowing)
+        {
+            robotRigidbody.isKinematic = true;
+            robotRigidbody.velocity = Vector3.zero;
+            robotRigidbody.angularVelocity = Vector3.zero;
+        }
+
+        if (disableUnityRobotControls)
+        {
+            foreach (PlayerInput playerInput in robotRoot.GetComponentsInChildren<PlayerInput>(true))
+            {
+                playerInput.DeactivateInput();
+                playerInput.enabled = false;
+            }
+
+            foreach (SwerveController controller in robotRoot.GetComponentsInChildren<SwerveController>(true))
+            {
+                controller.enabled = false;
+            }
+
+            foreach (ModuleBehaviour module in robotRoot.GetComponentsInChildren<ModuleBehaviour>(true))
+            {
+                module.enabled = false;
+            }
+
+            foreach (DriveMotor driveMotor in robotRoot.GetComponentsInChildren<DriveMotor>(true))
+            {
+                driveMotor.enabled = false;
+            }
+
+            foreach (WheelBehaviour wheel in robotRoot.GetComponentsInChildren<WheelBehaviour>(true))
+            {
+                wheel.enabled = false;
+            }
+
+            foreach (AutoAlign autoAlign in robotRoot.GetComponentsInChildren<AutoAlign>(true))
+            {
+                autoAlign.enabled = false;
+            }
+
+            foreach (AutoAim autoAim in robotRoot.GetComponentsInChildren<AutoAim>(true))
+            {
+                autoAim.enabled = false;
+            }
+        }
+
+        if (disableUnityMechanismActions)
+        {
+            foreach (JointController controller in robotRoot.GetComponentsInChildren<JointController>(true))
+            {
+                controller.enabled = false;
+            }
+
+            foreach (BuildNode node in robotRoot.GetComponentsInChildren<BuildNode>(true))
+            {
+                node.enabled = false;
+            }
+
+            foreach (InterpolateNode node in robotRoot.GetComponentsInChildren<InterpolateNode>(true))
+            {
+                node.enabled = false;
+            }
+        }
+    }
+
+    private void ResolveRobotRoot()
+    {
+        if (robotRoot || !autoFindSpawnedRobot)
+        {
+            return;
+        }
+
+        BuildFrame localFrame = GetComponentInParent<BuildFrame>();
+        if (localFrame)
+        {
+            robotRoot = localFrame.transform;
+        }
+
+        if (!robotRoot)
+        {
+            if (!loadMatch)
+            {
+                loadMatch = FindFirstObjectByType<LoadMatch>();
+            }
+
+            GameObject loadedRobot = loadMatch ? loadMatch.GetRobotLoaded() : null;
+            if (loadedRobot)
+            {
+                robotRoot = loadedRobot.transform;
+            }
+        }
+
+        if (robotRoot && !robotRigidbody)
+        {
+            robotRigidbody = robotRoot.GetComponent<Rigidbody>();
         }
     }
 
@@ -168,6 +335,7 @@ public class RobotCodeVisualizer : MonoBehaviour
             if (piece.rb)
             {
                 piece.rb.isKinematic = true;
+                piece.rb.detectCollisions = false;
                 piece.rb.velocity = Vector3.zero;
                 piece.rb.angularVelocity = Vector3.zero;
             }
@@ -184,13 +352,16 @@ public class RobotCodeVisualizer : MonoBehaviour
 
         while (pieces.Count < count)
         {
-            Transform parent = gamePieceParent ? gamePieceParent : transform.parent;
+            Transform parent = ResolveGamePieceParent();
             GamePiece piece = Instantiate(fuelPrefab, parent).GetComponent<GamePiece>();
             piece.pieceType = fuelPieceName;
             piece.state = GamePieceState.World;
+            piece.originalParent = parent;
+            piece.enabled = false;
             if (piece.rb)
             {
                 piece.rb.isKinematic = true;
+                piece.rb.detectCollisions = false;
             }
             pieces.Add(piece);
         }
@@ -209,6 +380,32 @@ public class RobotCodeVisualizer : MonoBehaviour
             }
             pieces.RemoveAt(i);
         }
+    }
+
+    private bool IsMirroredPiece(GamePiece piece)
+    {
+        return mirroredFuel.Contains(piece) || mirroredProjectiles.Contains(piece);
+    }
+
+    private Transform ResolveGamePieceParent()
+    {
+        if (gamePieceParent)
+        {
+            return gamePieceParent;
+        }
+
+        if (!loadMatch)
+        {
+            loadMatch = FindFirstObjectByType<LoadMatch>();
+        }
+
+        GameObject fieldHolder = loadMatch ? loadMatch.getFieldHolder() : null;
+        if (fieldHolder && fieldHolder.transform.childCount > 0)
+        {
+            return fieldHolder.transform.GetChild(0);
+        }
+
+        return fieldHolder ? fieldHolder.transform : transform;
     }
 
     private void LoadFuelPrefab()
