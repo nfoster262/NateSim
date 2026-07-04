@@ -336,6 +336,11 @@ If autonomous becomes very laggy:
 - Stop Play Mode and start it again after changing those settings.
 - NateSim should only show the fuel/projectile objects mirrored from robot code,
   not its own local field-spawned fuel plus the robot-code fuel at the same time.
+- If the Console says `RobotCodeVisualizer received ... poses; showing latest ...`,
+  the robot-code simulator is publishing more ball/projectile poses than NateSim
+  will render. Trim old inactive sim pieces in robot code, or raise the
+  `Max Mirrored Fuel Pieces` / `Max Mirrored Projectile Pieces` limits on
+  `RobotCodeVisualizer` while debugging.
 
 ## UDP Frame Format
 

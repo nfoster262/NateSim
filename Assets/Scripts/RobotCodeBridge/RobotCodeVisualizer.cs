@@ -5,6 +5,9 @@ using Util;
 
 public class RobotCodeVisualizer : MonoBehaviour
 {
+    private const int DefaultMaxMirroredFuelPieces = 200;
+    private const int DefaultMaxMirroredProjectilePieces = 80;
+
     [Header("Frame Source")]
     [SerializeField] private RobotCodeUdpReceiver receiver;
     [SerializeField] private LoadMatch loadMatch;
@@ -36,6 +39,8 @@ public class RobotCodeVisualizer : MonoBehaviour
     [Header("Game Pieces")]
     [SerializeField] private bool mirrorFuelPoses = true;
     [SerializeField] private bool mirrorProjectilePoses = true;
+    [SerializeField] private int maxMirroredFuelPieces = DefaultMaxMirroredFuelPieces;
+    [SerializeField] private int maxMirroredProjectilePieces = DefaultMaxMirroredProjectilePieces;
     [SerializeField] private Transform gamePieceParent;
     [SerializeField] private PieceNames fuelPieceName = PieceNames.Fuel;
 
@@ -48,6 +53,8 @@ public class RobotCodeVisualizer : MonoBehaviour
     private GameObject fuelPrefab;
     private Transform configuredRobotRoot;
     private bool configuredFieldAsVisualizer;
+    private long lastSyncedGamePieceFrameSequence = -1;
+    private float nextPieceLimitWarningTime;
 
     private void Awake()
     {
@@ -74,7 +81,7 @@ public class RobotCodeVisualizer : MonoBehaviour
 
     private void FixedUpdate()
     {
-        if (!receiver || !receiver.TryGetLatestFrame(out RobotCodeFrame frame))
+        if (!receiver || !receiver.TryGetLatestFrame(out RobotCodeFrame frame, out long frameSequence))
         {
             return;
         }
@@ -92,14 +99,21 @@ public class RobotCodeVisualizer : MonoBehaviour
 
         ApplyComponentPoses(frame.componentPoses);
 
-        if (mirrorFuelPoses)
+        if (frameSequence != lastSyncedGamePieceFrameSequence)
         {
-            SyncGamePieces(mirroredFuel, frame.fuelPoses);
-        }
+            lastSyncedGamePieceFrameSequence = frameSequence;
 
-        if (mirrorProjectilePoses)
-        {
-            SyncGamePieces(mirroredProjectiles, frame.projectilePoses);
+            if (mirrorFuelPoses)
+            {
+                SyncGamePieces(mirroredFuel, frame.fuelPoses,
+                    ResolvePieceLimit(maxMirroredFuelPieces, DefaultMaxMirroredFuelPieces), "fuel");
+            }
+
+            if (mirrorProjectilePoses)
+            {
+                SyncGamePieces(mirroredProjectiles, frame.projectilePoses,
+                    ResolvePieceLimit(maxMirroredProjectilePieces, DefaultMaxMirroredProjectilePieces), "projectile");
+            }
         }
     }
 
@@ -305,7 +319,7 @@ public class RobotCodeVisualizer : MonoBehaviour
         }
     }
 
-    private void SyncGamePieces(List<GamePiece> pieces, Pose3dFrame[] poses)
+    private void SyncGamePieces(List<GamePiece> pieces, Pose3dFrame[] poses, int maxPieces, string label)
     {
         if (poses == null)
         {
@@ -313,15 +327,26 @@ public class RobotCodeVisualizer : MonoBehaviour
             return;
         }
 
-        if (!EnsurePieceCount(pieces, poses.Length))
+        int visibleCount = Mathf.Max(0, Mathf.Min(poses.Length, maxPieces));
+        int poseStart = poses.Length - visibleCount;
+
+        if (poses.Length > maxPieces && Time.unscaledTime >= nextPieceLimitWarningTime)
+        {
+            nextPieceLimitWarningTime = Time.unscaledTime + 2f;
+            Debug.LogWarning(
+                $"RobotCodeVisualizer received {poses.Length} {label} poses; showing latest {visibleCount}. " +
+                "If autonomous is still slow, trim old sim pieces in robot code.");
+        }
+
+        if (!EnsurePieceCount(pieces, visibleCount))
         {
             return;
         }
 
-        for (int i = 0; i < poses.Length; i++)
+        for (int i = 0; i < visibleCount; i++)
         {
             GamePiece piece = pieces[i];
-            Pose3dFrame pose = poses[i];
+            Pose3dFrame pose = poses[poseStart + i];
             if (!piece || pose == null)
             {
                 continue;
@@ -357,17 +382,34 @@ public class RobotCodeVisualizer : MonoBehaviour
             piece.pieceType = fuelPieceName;
             piece.state = GamePieceState.World;
             piece.originalParent = parent;
-            piece.enabled = false;
-            if (piece.rb)
-            {
-                piece.rb.isKinematic = true;
-                piece.rb.detectCollisions = false;
-            }
+            ConfigureMirroredPiece(piece);
             pieces.Add(piece);
         }
 
         TrimPieces(pieces, count);
         return true;
+    }
+
+    private void ConfigureMirroredPiece(GamePiece piece)
+    {
+        if (!piece)
+        {
+            return;
+        }
+
+        piece.enabled = false;
+        foreach (Collider pieceCollider in piece.GetComponentsInChildren<Collider>(true))
+        {
+            pieceCollider.enabled = false;
+        }
+
+        foreach (Rigidbody body in piece.GetComponentsInChildren<Rigidbody>(true))
+        {
+            body.isKinematic = true;
+            body.detectCollisions = false;
+            body.velocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+        }
     }
 
     private void TrimPieces(List<GamePiece> pieces, int count)
@@ -385,6 +427,11 @@ public class RobotCodeVisualizer : MonoBehaviour
     private bool IsMirroredPiece(GamePiece piece)
     {
         return mirroredFuel.Contains(piece) || mirroredProjectiles.Contains(piece);
+    }
+
+    private int ResolvePieceLimit(int configuredLimit, int defaultLimit)
+    {
+        return configuredLimit > 0 ? configuredLimit : defaultLimit;
     }
 
     private Transform ResolveGamePieceParent()

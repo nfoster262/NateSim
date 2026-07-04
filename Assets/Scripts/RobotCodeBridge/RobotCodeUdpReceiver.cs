@@ -18,6 +18,7 @@ public class RobotCodeUdpReceiver : MonoBehaviour
     private RobotCodeFrame latestFrame;
     private string latestJson;
     private bool hasUnparsedFrame;
+    private long latestFrameSequence;
     private bool running;
     private double lastReceiveRealtime;
     private readonly Stopwatch stopwatch = new Stopwatch();
@@ -83,6 +84,11 @@ public class RobotCodeUdpReceiver : MonoBehaviour
 
     public bool TryGetLatestFrame(out RobotCodeFrame frame)
     {
+        return TryGetLatestFrame(out frame, out _);
+    }
+
+    public bool TryGetLatestFrame(out RobotCodeFrame frame, out long frameSequence)
+    {
         lock (frameLock)
         {
             if (hasUnparsedFrame)
@@ -90,6 +96,7 @@ public class RobotCodeUdpReceiver : MonoBehaviour
                 try
                 {
                     latestFrame = JsonUtility.FromJson<RobotCodeFrame>(latestJson);
+                    latestFrameSequence++;
                 }
                 catch (Exception ex)
                 {
@@ -100,6 +107,7 @@ public class RobotCodeUdpReceiver : MonoBehaviour
             }
 
             frame = latestFrame;
+            frameSequence = latestFrameSequence;
             return frame != null;
         }
     }
