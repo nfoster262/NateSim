@@ -1076,8 +1076,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c14cda480e16d1a4aac48a7526d7e384, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   pieceType: 2
   owner: {fileID: 0}
   rb: {fileID: 3877992}
@@ -436888,6 +436888,7 @@ GameObject:
   - component: {fileID: 1652138571}
   - component: {fileID: 1652138570}
   - component: {fileID: 1652138569}
+  - component: {fileID: 1652138572}
   m_Layer: 0
   m_Name: RobotCodeBridge
   m_TagString: Untagged
@@ -436928,23 +436929,63 @@ MonoBehaviour:
   robotRigidbody: {fileID: 0}
   followRobotPose: 1
   makeRobotKinematicWhileFollowing: 1
+  keepRobotCollisionsWhileFollowing: 1
+  useFieldCollidersForPoseHeight: 1
+  fieldHeightMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  heightProbeStart: 2
+  heightProbeDistance: 5
+  heightProbePadding: 0.02
   poseSmoothing: 18
   disableUnityRobotControls: 1
-  disableUnityMechanismActions: 1
-  disableUnityFieldGamePieceSystems: 1
-  removeUnitySpawnedGamePieces: 1
+  disableUnityMechanismActions: 0
+  disableUnityFieldGamePieceSystems: 0
+  removeUnitySpawnedGamePieces: 0
   fieldLengthMeters: 16.540989
   fieldWidthMeters: 8.052
   unityFieldOrigin: {x: 0, y: 0, z: 0}
   unityMetersPerWpilibMeter: 1
   headingOffsetDegrees: 0
+  followComponentPoses: 0
   componentBindings: []
-  mirrorFuelPoses: 1
-  mirrorProjectilePoses: 1
+  mirrorFuelPoses: 0
+  mirrorProjectilePoses: 0
   gamePieceParent: {fileID: 0}
   fuelPieceName: 2
   latestSuccessfulScoreCount: 0
   latestLaunchEventId: 0
+--- !u!114 &1652138572
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1652138568}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4c47eabf65b84d9f83be9fe1f2533a62, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  pathPlannerRoot: C:\Users\resto\Documents\GitHub\2026-Rebuilt\src\main\deploy\pathplanner
+  selectedAutoName: Left Bump Rush
+  reloadOnStart: 1
+  receiver: {fileID: 0}
+  loadMatch: {fileID: 0}
+  robotRoot: {fileID: 0}
+  autoFindSpawnedRobot: 1
+  runOnlyDuringAuto: 0
+  syncTimelineToRobotCodeFrames: 1
+  startTimelineOnRobotMotion: 1
+  autoElapsedAtFirstMotionSeconds: 0.5
+  motionStartDistanceMeters: 0.05
+  virtualButtonHoldSeconds: 0.15
+  defaultNamedCommandSeconds: 0.25
+  defaultPathSeconds: 2
+  minimumHeldCommandSeconds: 0.1
+  enableAutoAimModulesDuringAim: 1
+  loadedCommandWindows: 0
+  lastActiveCommand:
 --- !u!4 &1652138571
 Transform:
   m_ObjectHideFlags: 0

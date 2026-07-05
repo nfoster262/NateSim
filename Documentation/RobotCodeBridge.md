@@ -2,9 +2,13 @@
 
 NateSim can act as a 3D visualizer for the 2026 MECO robot code. In this mode,
 the robot is not driven by Unity, a keyboard, or a game controller inside NateSim.
-All control comes from the WPILib robot simulator, Driver Station, and Elastic.
-NateSim only receives robot pose, mechanism pose, ball pose, projectile pose, and
-score information over UDP and renders it on the field.
+Robot driving still comes from the WPILib robot simulator, Driver Station, and
+Elastic. NateSim receives the robot pose over UDP and places the Unity robot on
+the field.
+
+The match timer, score, game pieces, and collision/scoring physics stay owned by
+NateSim. Unity's built-in physics engine remains responsible for colliders and
+field interactions.
 
 This is similar in spirit to opening a 3D field view in AdvantageScope, except the
 visualizer is the NateSim Unity scene.
@@ -96,6 +100,13 @@ RobotCodeUdpReceiver
 RobotCodeVisualizer
 ```
 
+9. Click `Add Component` again.
+10. Add:
+
+```text
+RobotCodePathPlannerAutoBridge
+```
+
 After this step, your scene hierarchy should include something like this:
 
 ```text
@@ -171,35 +182,81 @@ On `RobotCodeVisualizer`, use these defaults:
 - `Auto Find Spawned Robot`: checked
 - `Follow Robot Pose`: checked
 - `Make Robot Kinematic While Following`: checked
+- `Keep Robot Collisions While Following`: checked
+- `Use Field Colliders For Pose Height`: checked
 - `Disable Unity Robot Controls`: checked
-- `Disable Unity Mechanism Actions`: checked
-- `Disable Unity Field Game Piece Systems`: checked
-- `Remove Unity Spawned Game Pieces`: checked
-- `Mirror Fuel Poses`: checked
-- `Mirror Projectile Poses`: checked
+- `Disable Unity Mechanism Actions`: unchecked
+- `Disable Unity Field Game Piece Systems`: unchecked
+- `Remove Unity Spawned Game Pieces`: unchecked
+- `Follow Component Poses`: unchecked
+- `Mirror Fuel Poses`: unchecked
+- `Mirror Projectile Poses`: unchecked
 - `Fuel Piece Name`: `Fuel`
 
-These settings are important. They make NateSim passive:
+These settings are important. They make NateSim use robot code for drivetrain
+position only:
 
 - Unity `PlayerInput` is disabled.
 - NateSim's local swerve controller is disabled.
 - NateSim's local wheel/module physics drive scripts are disabled.
-- NateSim's local mechanism and game-piece action scripts are disabled.
-- NateSim's local field spawners are disabled.
-- NateSim's pre-spawned local fuel pieces are removed.
 - The robot transform follows the pose sent by WPILib sim.
+- The robot remains a Unity collider while following that pose.
+- The robot's X/Z/heading come from robot code, but its Y height is sampled from
+  Unity field colliders so it can ride over bumps and ramps.
+- NateSim's mechanism actions, field spawners, game pieces, scoring, and timer
+  stay active.
 
 Leave `Robot Root` empty at first. With `Auto Find Spawned Robot` enabled, the
 visualizer will ask `LoadMatch` which robot was spawned and use that robot.
 
-## Optional: Game Piece Parent
+## Configure PathPlanner Auto Actions
 
-`Game Piece Parent` controls where mirrored fuel objects are created in the Unity
-hierarchy. If you leave it empty, the visualizer will use a nearby parent transform.
-That is usually fine for early testing.
+`RobotCodePathPlannerAutoBridge` prefers the live action state published by robot
+code. When the UDP frame contains `hasGameActionState`, the bridge directly uses
+`intakeActive`, `shootActive`, and `aimActive` to press NateSim's virtual intake,
+outake, and auto-aim controls.
 
-If you want a cleaner hierarchy later, set `Game Piece Parent` to the field holder
-object after entering Play Mode and seeing where the field is spawned.
+The PathPlanner file reader remains as a fallback for older robot code that only
+publishes pose frames.
+
+Use these defaults:
+
+- `Path Planner Root`:
+  `C:\Users\resto\Documents\GitHub\2026-Rebuilt\src\main\deploy\pathplanner`
+- `Selected Auto Name`: the `.auto` file name without `.auto`, for example
+  `Left Bump Rush`
+- `Reload On Start`: checked
+- `Auto Find Spawned Robot`: checked
+- `Run Only During Auto`: unchecked
+- `Sync Timeline To Robot Code Frames`: checked
+- `Start Timeline On Robot Motion`: checked
+- `Auto Elapsed At First Motion Seconds`: `0.5`
+- `Enable Auto Aim Modules During Aim`: checked
+
+When falling back to PathPlanner files, the bridge maps command names by intent:
+
+- Names such as `SpinIntake`, `Collect`, `Pickup`, or `Harvest` run Unity intake
+  nodes.
+- Names containing `feed`, `shoot`, or `agitate`, such as `FeedRollers`, run
+  Unity outake nodes.
+- Names containing `aim`, such as `AutoAim`, temporarily enable Unity `AutoAim`
+  modules while the PathPlanner command is active.
+- Names containing `deploy`, `rack`, `idle`, or `stow` are treated as mechanism
+  or stop/reset commands and do not collect or launch a game piece.
+
+Robot code still drives the path and publishes pose. NateSim uses its own
+game-piece physics for collecting and shooting during autonomous. The auto-action
+timeline waits for robot-code pose to start moving, then treats that moment as
+roughly half a second into the selected PathPlanner auto.
+
+## Optional: Mirrored Game Pieces
+
+`Mirror Fuel Poses` and `Mirror Projectile Poses` should stay unchecked for normal
+gameplay. When they are unchecked, NateSim's own game pieces, colliders, and
+scoring zones are the source of truth.
+
+`Game Piece Parent` only matters if you temporarily turn mirrored game pieces back
+on for debugging robot-code projectile visualization.
 
 ## Optional: Mechanism Bindings
 
@@ -221,8 +278,9 @@ For each binding:
 2. Set `Name` to one of the names above.
 3. Drag the matching Unity transform into `Target`.
 
-You can skip this for the first test. The robot body, fuel, and projectiles can
-still work without mechanism bindings.
+Leave `Follow Component Poses` unchecked if NateSim should only use the robot-code
+robot pose. If you enable it, mechanism bindings become visual-only targets driven
+by the robot-code frame.
 
 ## Run NateSim
 
@@ -284,9 +342,12 @@ You know the bridge is working when:
 
 - The robot in NateSim moves when the WPILib sim robot moves.
 - Pressing controller buttons while focused on Unity does not drive the NateSim robot.
-- Fuel pieces appear or move based on robot-code simulation state.
-- Projectiles appear when the robot-code shooter simulation launches fuel.
-- Elastic and the WPILib sim remain the places where robot behavior is controlled.
+- The NateSim timer counts down from Unity's FMS.
+- Score changes only when Unity field scoring zones detect Unity game pieces.
+- Unity game pieces and scoring zones still use normal colliders.
+- During autonomous, PathPlanner named commands such as `SpinIntake`, `AutoAim`,
+  and `FeedRollers` cause the Unity robot to intake, aim, and shoot.
+- Elastic and the WPILib sim remain the places where robot driving is controlled.
 
 ## Troubleshooting
 
@@ -320,22 +381,35 @@ The default coordinate mapping assumes WPILib field coordinates in meters:
 - The WPILib field origin is centered into Unity by subtracting half the 2026 field
   length and width.
 
-If balls do not appear:
+If Unity game pieces do not interact with the robot or field:
 
-- Confirm `Mirror Fuel Poses` is checked.
-- Confirm `Mirror Projectile Poses` is checked.
-- Confirm `Assets/Resources/Pieces/Fuel.prefab` exists.
-- Confirm the robot code is publishing `fuelPoses` and `projectilePoses`.
+- Confirm `Keep Robot Collisions While Following` is checked.
+- Confirm `Use Field Colliders For Pose Height` is checked.
+- Confirm `Disable Unity Field Game Piece Systems` is unchecked.
+- Confirm `Remove Unity Spawned Game Pieces` is unchecked.
+- Confirm `Mirror Fuel Poses` and `Mirror Projectile Poses` are unchecked for
+  normal gameplay.
 
-If autonomous becomes very laggy:
+If the robot still clips through a field bump:
 
-- Look for hundreds or thousands of yellow fuel balls piling up in the Unity Game
-  view.
-- Confirm `Disable Unity Field Game Piece Systems` is checked.
-- Confirm `Remove Unity Spawned Game Pieces` is checked.
-- Stop Play Mode and start it again after changing those settings.
-- NateSim should only show the fuel/projectile objects mirrored from robot code,
-  not its own local field-spawned fuel plus the robot-code fuel at the same time.
+- Confirm the bump has a non-trigger Unity collider.
+- Confirm `Field Height Mask` includes the bump's layer.
+- Raise `Height Probe Start` if the robot can approach a taller field element.
+- Raise `Height Probe Distance` if the field element is far below the robot's
+  current pose.
+
+If autonomous drives the path but does not intake or shoot:
+
+- Confirm `RobotCodePathPlannerAutoBridge` is attached to `RobotCodeBridge`.
+- Confirm `Selected Auto Name` exactly matches an existing `.auto` file.
+- Confirm the `.auto` file contains named commands such as `SpinIntake`,
+  `AutoAim`, or `FeedRollers`.
+- Confirm the spawned robot has `BuildNode` actions for intake and outake.
+
+If optional mirrored game pieces become very laggy:
+
+- This only applies if you turned `Mirror Fuel Poses` or `Mirror Projectile Poses`
+  back on for debugging.
 - If the Console says `RobotCodeVisualizer received ... poses; showing latest ...`,
   the robot-code simulator is publishing more ball/projectile poses than NateSim
   will render. Trim old inactive sim pieces in robot code, or raise the
@@ -344,7 +418,8 @@ If autonomous becomes very laggy:
 
 ## UDP Frame Format
 
-The robot code publishes JSON frames like this:
+The robot code may publish JSON frames like this, but NateSim only needs
+`robotPose` for the normal bridge setup:
 
 ```json
 {
@@ -360,8 +435,17 @@ The robot code publishes JSON frames like this:
     { "x": 7.4, "y": 3.2, "z": 1.1, "roll": 0.0, "pitch": 0.0, "yaw": 0.0 }
   ],
   "successfulScoreCount": 1,
-  "launchEventId": 5
+  "launchEventId": 5,
+  "hasGameActionState": true,
+  "intakeActive": false,
+  "shootActive": false,
+  "aimActive": false
 }
 ```
 
-All linear units are meters and all angles are radians.
+All linear units are meters and all angles are radians. `componentPoses`,
+`fuelPoses`, `projectilePoses`, `successfulScoreCount`, and `launchEventId` are
+ignored unless you deliberately enable the optional visual-only mirroring settings
+on `RobotCodeVisualizer`. The action-state booleans are used by
+`RobotCodePathPlannerAutoBridge` so Unity can run its own intake, shooter, score,
+and collider systems while robot code owns the drivetrain pose.

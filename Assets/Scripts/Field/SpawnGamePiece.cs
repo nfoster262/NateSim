@@ -20,6 +20,7 @@ public class SpawnGamePiece : MonoBehaviour
 
     [Header("Spawn Control")]
     [SerializeField] private float delayTimer;
+    [SerializeField] private int maxActivePieces = 24;
     
     [Header("Threshold Spawn Settings")]
     [SerializeField] private BoxCollider detectionVolume; 
@@ -70,7 +71,8 @@ public class SpawnGamePiece : MonoBehaviour
 
     private void SpawnPiece(PieceNames pieceTypeEnum, float velocityValue, Vector3 spawnPosition)
     {
-        if (!CanSpawn() || !_piecesMap.TryGetValue(pieceTypeEnum, out GameObject piecePrefab)) 
+        if (!CanSpawn() || HasReachedActivePieceLimit(pieceTypeEnum) ||
+            !_piecesMap.TryGetValue(pieceTypeEnum, out GameObject piecePrefab))
             return;
 
         var item = Instantiate(piecePrefab, spawnPosition, transform.rotation, transform)
@@ -104,6 +106,29 @@ public class SpawnGamePiece : MonoBehaviour
         _lastSpawnTime = Time.time;  // Record spawn time
     }
 
+    private bool HasReachedActivePieceLimit(PieceNames pieceTypeEnum)
+    {
+        if (maxActivePieces <= 0)
+        {
+            return false;
+        }
+
+        int count = 0;
+        foreach (GamePiece piece in FindObjectsByType<GamePiece>(FindObjectsSortMode.None))
+        {
+            if (piece && piece.pieceType == pieceTypeEnum)
+            {
+                count++;
+                if (count >= maxActivePieces)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     private Vector3 GetClosestPointOnAxis(Vector3 targetPosition, Direction slideDirection, float maxSlideDistance)
     {
         Vector3 spawnerPos = transform.position;
@@ -130,7 +155,7 @@ public class SpawnGamePiece : MonoBehaviour
 
     private bool CheckInternalThreshold()
     {
-        if (!detectionVolume) return false;
+        if (!detectionVolume) return true;
 
         _currentGamePieces.Clear();
         

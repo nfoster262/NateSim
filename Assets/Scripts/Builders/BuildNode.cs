@@ -33,6 +33,9 @@ public class BuildNode: MonoBehaviour
     
     private Vector3 _lastIntakePosition;
     private Quaternion _lastIntakeRotation;
+    private readonly Dictionary<NodeType, float> autoHeldUntilByType = new Dictionary<NodeType, float>();
+    private readonly HashSet<NodeType> autoPressedTypes = new HashSet<NodeType>();
+    private float autoBypassRobotStateUntil;
     
     private void Start()
     {
@@ -166,6 +169,12 @@ public class BuildNode: MonoBehaviour
             var keyboardHeld = keyboardAction.IsPressed() &&
                                (keyboardAction.activeControl?.device is Keyboard);
             var buttonHeld = controllerHeld || keyboardHeld;
+            if (autoHeldUntilByType.TryGetValue(action.Type, out float autoHeldUntil) &&
+                autoHeldUntil >= Time.time)
+            {
+                buttonHeld = true;
+                buttonPressed |= autoPressedTypes.Contains(action.Type);
+            }
 
             if (buttonPressed || buttonHeld)
             {
@@ -176,7 +185,7 @@ public class BuildNode: MonoBehaviour
             {
                 case NodeType.Intake:
                     //intake null check
-                    if (FMS.RobotState == RobotState.disabled)
+                    if (FMS.RobotState == RobotState.disabled && Time.time > autoBypassRobotStateUntil)
                     {
                         break;
                     }
@@ -227,7 +236,7 @@ public class BuildNode: MonoBehaviour
                     }
                     break;
                 case NodeType.Outake:
-                    if (FMS.RobotState == RobotState.disabled)
+                    if (FMS.RobotState == RobotState.disabled && Time.time > autoBypassRobotStateUntil)
                     {
                         break;
                     }
@@ -285,6 +294,138 @@ public class BuildNode: MonoBehaviour
         {
             currentGamePiece = null;
             currentState = NodeState.Stowing;
+        }
+
+        autoPressedTypes.Clear();
+        ClearExpiredAutoActions();
+    }
+
+    public void QueueAutoAction(NodeType actionType, bool pressed, float holdSeconds = 0.1f)
+    {
+        if (Actions == null)
+        {
+            return;
+        }
+
+        bool hasActionType = false;
+        foreach (NodeAction action in Actions)
+        {
+            if (action.Type == actionType)
+            {
+                hasActionType = true;
+                break;
+            }
+        }
+
+        if (!hasActionType)
+        {
+            return;
+        }
+
+        autoHeldUntilByType[actionType] = Mathf.Max(
+            autoHeldUntilByType.TryGetValue(actionType, out float currentUntil) ? currentUntil : 0f,
+            Time.time + holdSeconds);
+        autoBypassRobotStateUntil = Mathf.Max(autoBypassRobotStateUntil, Time.time + holdSeconds);
+
+        if (pressed)
+        {
+            autoPressedTypes.Add(actionType);
+        }
+    }
+
+    private void ClearExpiredAutoActions()
+    {
+        autoPressedTypes.RemoveWhere(type =>
+            !autoHeldUntilByType.TryGetValue(type, out float heldUntil) || heldUntil < Time.time);
+    }
+
+    public bool PerformAutoAction(NodeType actionType, bool buttonPressed, bool buttonHeld, string preferredActionName = null)
+    {
+        if (!EditorApplication.isPlaying || Actions == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < Actions.Length; i++)
+        {
+            ref NodeAction action = ref Actions[i];
+            if (action.Type != actionType)
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrEmpty(preferredActionName) &&
+                !string.Equals(action.Name, preferredActionName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            return PerformAutoAction(ref action, buttonPressed, buttonHeld);
+        }
+
+        if (!string.IsNullOrEmpty(preferredActionName))
+        {
+            return PerformAutoAction(actionType, buttonPressed, buttonHeld);
+        }
+
+        return false;
+    }
+
+    public bool PerformAutoAction(string preferredActionName, bool buttonPressed, bool buttonHeld)
+    {
+        if (string.IsNullOrEmpty(preferredActionName) || Actions == null)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < Actions.Length; i++)
+        {
+            ref NodeAction action = ref Actions[i];
+            if (string.Equals(action.Name, preferredActionName, StringComparison.OrdinalIgnoreCase))
+            {
+                return PerformAutoAction(ref action, buttonPressed, buttonHeld);
+            }
+        }
+
+        return false;
+    }
+
+    private bool PerformAutoAction(ref NodeAction action, bool buttonPressed, bool buttonHeld)
+    {
+        if (FMS.RobotState == RobotState.disabled)
+        {
+            return false;
+        }
+
+        switch (action.Type)
+        {
+            case NodeType.Intake:
+                return _intakeCollider && IntakePiece(buttonHeld || buttonPressed, action);
+            case NodeType.Transfer:
+                return currentGamePiece && TransferPiece(buttonHeld || buttonPressed, buttonPressed, ref action);
+            case NodeType.Outake:
+                if (!currentGamePiece || action.PieceType != currentGamePiece.pieceType)
+                {
+                    return false;
+                }
+
+                if (!PerformTimerCheck(ref action, buttonPressed))
+                {
+                    return false;
+                }
+
+                currentState = NodeState.Outaking;
+                bool finished = GamePieceManager.ReleaseToWorld(currentGamePiece, action);
+                StartCoroutine(GamePieceManager.enableColliders(currentGamePiece));
+                if (finished)
+                {
+                    currentGamePiece = null;
+                    currentState = NodeState.Stowing;
+                }
+
+                return finished;
+            default:
+                return false;
         }
     }
 

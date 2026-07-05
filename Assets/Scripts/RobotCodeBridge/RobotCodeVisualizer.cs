@@ -18,13 +18,19 @@ public class RobotCodeVisualizer : MonoBehaviour
     [SerializeField] private Rigidbody robotRigidbody;
     [SerializeField] private bool followRobotPose = true;
     [SerializeField] private bool makeRobotKinematicWhileFollowing = true;
+    [SerializeField] private bool keepRobotCollisionsWhileFollowing = true;
+    [SerializeField] private bool useFieldCollidersForPoseHeight = true;
+    [SerializeField] private LayerMask fieldHeightMask = ~0;
+    [SerializeField] private float heightProbeStart = 2f;
+    [SerializeField] private float heightProbeDistance = 5f;
+    [SerializeField] private float heightProbePadding = 0.02f;
     [SerializeField] private float poseSmoothing = 18f;
 
     [Header("Visualizer Mode")]
     [SerializeField] private bool disableUnityRobotControls = true;
-    [SerializeField] private bool disableUnityMechanismActions = true;
-    [SerializeField] private bool disableUnityFieldGamePieceSystems = true;
-    [SerializeField] private bool removeUnitySpawnedGamePieces = true;
+    [SerializeField] private bool disableUnityMechanismActions = false;
+    [SerializeField] private bool disableUnityFieldGamePieceSystems = false;
+    [SerializeField] private bool removeUnitySpawnedGamePieces = false;
 
     [Header("WPILib Field Mapping")]
     [SerializeField] private float fieldLengthMeters = 16.540988f;
@@ -34,11 +40,12 @@ public class RobotCodeVisualizer : MonoBehaviour
     [SerializeField] private float headingOffsetDegrees = 0f;
 
     [Header("Mechanism Visuals")]
+    [SerializeField] private bool followComponentPoses = false;
     [SerializeField] private ComponentBinding[] componentBindings;
 
     [Header("Game Pieces")]
-    [SerializeField] private bool mirrorFuelPoses = true;
-    [SerializeField] private bool mirrorProjectilePoses = true;
+    [SerializeField] private bool mirrorFuelPoses = false;
+    [SerializeField] private bool mirrorProjectilePoses = false;
     [SerializeField] private int maxMirroredFuelPieces = DefaultMaxMirroredFuelPieces;
     [SerializeField] private int maxMirroredProjectilePieces = DefaultMaxMirroredProjectilePieces;
     [SerializeField] private Transform gamePieceParent;
@@ -55,6 +62,7 @@ public class RobotCodeVisualizer : MonoBehaviour
     private bool configuredFieldAsVisualizer;
     private long lastSyncedGamePieceFrameSequence = -1;
     private float nextPieceLimitWarningTime;
+    private float robotBottomOffset;
 
     private void Awake()
     {
@@ -67,7 +75,7 @@ public class RobotCodeVisualizer : MonoBehaviour
 
         if (robotRigidbody && makeRobotKinematicWhileFollowing)
         {
-            MakeKinematicWithoutCollision(robotRigidbody);
+            MakeKinematicForPoseFollow(robotRigidbody);
         }
 
         LoadFuelPrefab();
@@ -89,15 +97,18 @@ public class RobotCodeVisualizer : MonoBehaviour
         ConfigureRobotAsVisualizer();
         ConfigureFieldAsVisualizer();
 
-        latestSuccessfulScoreCount = frame.successfulScoreCount;
-        latestLaunchEventId = frame.launchEventId;
+        latestSuccessfulScoreCount = 0;
+        latestLaunchEventId = 0;
 
         if (followRobotPose && frame.robotPose != null)
         {
             ApplyRobotPose(frame.robotPose);
         }
 
-        ApplyComponentPoses(frame.componentPoses);
+        if (followComponentPoses)
+        {
+            ApplyComponentPoses(frame.componentPoses);
+        }
 
         if (frameSequence != lastSyncedGamePieceFrameSequence)
         {
@@ -176,8 +187,10 @@ public class RobotCodeVisualizer : MonoBehaviour
 
         if (robotRigidbody && makeRobotKinematicWhileFollowing)
         {
-            MakeKinematicWithoutCollision(robotRigidbody);
+            MakeKinematicForPoseFollow(robotRigidbody);
         }
+
+        CacheRobotBottomOffset();
 
         if (disableUnityRobotControls)
         {
@@ -270,10 +283,78 @@ public class RobotCodeVisualizer : MonoBehaviour
         }
     }
 
+    private void CacheRobotBottomOffset()
+    {
+        if (!robotRoot)
+        {
+            robotBottomOffset = 0f;
+            return;
+        }
+
+        bool foundCollider = false;
+        Bounds bounds = new Bounds(robotRoot.position, Vector3.zero);
+        foreach (Collider robotCollider in robotRoot.GetComponentsInChildren<Collider>(true))
+        {
+            if (!robotCollider || robotCollider.isTrigger)
+            {
+                continue;
+            }
+
+            if (!foundCollider)
+            {
+                bounds = robotCollider.bounds;
+                foundCollider = true;
+            }
+            else
+            {
+                bounds.Encapsulate(robotCollider.bounds);
+            }
+        }
+
+        robotBottomOffset = foundCollider
+            ? Mathf.Max(0f, robotRoot.position.y - bounds.min.y)
+            : 0f;
+    }
+
+    private Vector3 ResolvePoseHeight(Vector3 targetPosition)
+    {
+        if (!useFieldCollidersForPoseHeight || !robotRoot)
+        {
+            return targetPosition;
+        }
+
+        Vector3 origin = new Vector3(targetPosition.x, targetPosition.y + heightProbeStart, targetPosition.z);
+        RaycastHit[] hits = Physics.RaycastAll(origin, Vector3.down, heightProbeDistance, fieldHeightMask,
+            QueryTriggerInteraction.Ignore);
+
+        float bestGroundY = float.NegativeInfinity;
+        foreach (RaycastHit hit in hits)
+        {
+            if (!hit.collider || hit.collider.transform.IsChildOf(robotRoot) ||
+                hit.collider.GetComponentInParent<GamePiece>())
+            {
+                continue;
+            }
+
+            if (hit.point.y > bestGroundY)
+            {
+                bestGroundY = hit.point.y;
+            }
+        }
+
+        if (!float.IsNegativeInfinity(bestGroundY))
+        {
+            targetPosition.y = bestGroundY + robotBottomOffset + heightProbePadding;
+        }
+
+        return targetPosition;
+    }
+
     private void ApplyRobotPose(Pose2dFrame pose)
     {
         Vector3 targetPosition = WpilibToUnityPosition(pose.x, pose.y, 0f);
         Quaternion targetRotation = WpilibYawToUnityRotation(pose.theta);
+        targetPosition = ResolvePoseHeight(targetPosition);
 
         if (robotRigidbody && robotRigidbody.isKinematic)
         {
@@ -412,6 +493,22 @@ public class RobotCodeVisualizer : MonoBehaviour
         }
 
         body.detectCollisions = false;
+        if (!body.isKinematic)
+        {
+            body.velocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+            body.isKinematic = true;
+        }
+    }
+
+    private void MakeKinematicForPoseFollow(Rigidbody body)
+    {
+        if (!body)
+        {
+            return;
+        }
+
+        body.detectCollisions = keepRobotCollisionsWhileFollowing;
         if (!body.isKinematic)
         {
             body.velocity = Vector3.zero;

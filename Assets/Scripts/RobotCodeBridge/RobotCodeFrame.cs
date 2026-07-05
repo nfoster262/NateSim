@@ -10,6 +10,10 @@ public class RobotCodeFrame
     public Pose3dFrame[] projectilePoses;
     public int successfulScoreCount;
     public int launchEventId;
+    public bool hasGameActionState;
+    public bool intakeActive;
+    public bool shootActive;
+    public bool aimActive;
 }
 
 [Serializable]
